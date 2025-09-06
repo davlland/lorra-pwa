@@ -50,3 +50,5 @@ firebase-debug.log
 
 # Secretos
 backend/serviceAccount.json
+
+serviceAccount.b64.txt
