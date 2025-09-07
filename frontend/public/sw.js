@@ -1,43 +1,56 @@
-// public/sw.js
-self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', () => clients.claim());
+// frontend/public/sw.js
+// Service Worker para notificaciones push
+
+self.addEventListener('install', (event) => {
+  // Activa inmediatamente
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  // Toma control de las páginas abiertas
+  event.waitUntil(self.clients.claim());
+});
 
 self.addEventListener('push', (event) => {
-  // No muestres notis si el usuario no dio permiso
-  if (Notification.permission !== 'granted') return;
-
-  let data = {};
   try {
-    data = event.data ? event.data.json() : {};
-  } catch {
-    try {
-      data = { title: 'Mensaje', body: event.data?.text() };
-    } catch {
-      data = { title: 'Mensaje', body: '' };
-    }
+    const data = event.data ? event.data.json() : {};
+    const title = data.title || 'Noticia';
+    const body = data.body || '';
+    const url = data.url || '/';
+
+    const options = {
+      body,
+      icon: '/icon-192x192.png',
+      badge: '/icon-192x192.png',
+      data: { url },
+    };
+
+    event.waitUntil(self.registration.showNotification(title, options));
+  } catch (e) {
+    // fallback si no viene JSON
+    event.waitUntil(
+      self.registration.showNotification('Noticia', {
+        body: event.data ? event.data.text() : '',
+        icon: '/icon-192x192.png',
+      })
+    );
   }
-
-  const title = data.title || 'Nueva noticia';
-  const options = {
-    body: data.body || '',
-    data: { url: data.url || '/' },
-    icon: '/icon-192x192.png',
-    badge: '/icon-192x192.png'
-  };
-
-  event.waitUntil(self.registration.showNotification(title, options));
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const url = event.notification?.data?.url || '/';
-
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // Si ya hay una pestaña abierta, enfócala
       for (const client of clientList) {
-        if (client.url === url && 'focus' in client) return client.focus();
+        const u = new URL(client.url);
+        if (client.visibilityState === 'visible') {
+          return client.focus();
+        }
       }
-      if (clients.openWindow) return clients.openWindow(url);
+      // Si no, abre una nueva
+      return clients.openWindow(url);
     })
   );
 });
