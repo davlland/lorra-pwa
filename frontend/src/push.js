@@ -1,70 +1,69 @@
-// src/push.js
+// frontend/src/push.js
+// Utilidades para suscripción push en el navegador
+
+const API_BASE =
+  (import.meta.env && import.meta.env.VITE_API_BASE) ||
+  (window.__API_BASE__) ||
+  window.location.origin; // fallback local
+
 function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
+  const raw = atob(base64);
+  const output = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; ++i) output[i] = raw.charCodeAt(i);
+  return output;
 }
 
-export async function subscribeToPush(backendBase = 'http://localhost:3001') {
+export async function getVapidPublicKey() {
+  const r = await fetch(`${API_BASE}/api/vapidPublicKey`);
+  if (!r.ok) throw new Error(`vapidPublicKey ${r.status}`);
+  const { key } = await r.json();
+  return key;
+}
+
+export async function registerSW() {
   if (!('serviceWorker' in navigator)) throw new Error('SW no soportado');
-  if (Notification.permission !== 'granted') throw new Error('Notificaciones no permitidas');
+  const reg = await navigator.serviceWorker.register('/sw.js');
+  await navigator.serviceWorker.ready;
+  return reg;
+}
 
-  const reg = await navigator.serviceWorker.ready;
-  // si ya existe, la reusamos
-  let sub = await reg.pushManager.getSubscription();
-  if (!sub) {
-    const { key } = await fetch(`${backendBase}/vapidPublicKey`).then(r => r.json());
-    const appServerKey = urlBase64ToUint8Array(key);
-    sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: appServerKey
-    });
-  }
-
-  // guarda en backend/Firestore
-  await fetch(`${backendBase}/subscribe`, {
+export async function subscribePush() {
+  const reg = await registerSW();
+  const vapidKey = await getVapidPublicKey();
+  const sub = await reg.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(vapidKey),
+  });
+  // Guardar sub en la API
+  await fetch(`${API_BASE}/api/subscribe`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(sub)
+    body: JSON.stringify(sub),
   });
-
   return sub;
 }
 
-export async function getCurrentSubscription() {
-  if (!('serviceWorker' in navigator)) return null;
-  const reg = await navigator.serviceWorker.ready;
+export async function unsubscribePush() {
+  const reg = await registerSW();
+  const sub = await reg.pushManager.getSubscription();
+  if (sub) {
+    const endpoint = sub.endpoint;
+    await sub.unsubscribe().catch(() => {});
+    await fetch(`${API_BASE}/api/unsubscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint }),
+    });
+    return true;
+  }
+  return false;
+}
+
+export async function getSubscription() {
+  const reg = await registerSW();
   return reg.pushManager.getSubscription();
 }
 
-export async function unsubscribeFromPush(backendBase = 'http://localhost:3001') {
-  const reg = await navigator.serviceWorker.ready;
-  const sub = await reg.pushManager.getSubscription();
-  if (!sub) return { ok: true, removedLocal: false, removedRemote: false };
-
-  // guardamos endpoint para borrar en Firestore
-  const endpoint = sub.endpoint;
-
-  // 1) borrar en el navegador
-  const removedLocal = await sub.unsubscribe().catch(() => false);
-
-  // 2) avisar al backend para borrar en Firestore (aunque falle el 1)
-  let removedRemote = false;
-  try {
-    await fetch(`${backendBase}/unsubscribe`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ endpoint })
-    }).then(r => r.json());
-    removedRemote = true;
-  } catch (e) {
-    removedRemote = false;
-  }
-
-  return { ok: removedLocal || removedRemote, removedLocal, removedRemote };
-}
+export const API = API_BASE;

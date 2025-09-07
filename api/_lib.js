@@ -4,8 +4,24 @@
 const admin = require('firebase-admin');
 const webpush = require('web-push');
 const { XMLParser } = require('fast-xml-parser');
+const crypto = require('crypto');
 
 let firebaseReady = false;
+
+/** CORS simple */
+function setCors(res) {
+  res.setHeader('Access-Control-Allow-Origin', '*'); // Si quieres restringir: 'https://lorra-pwa.vercel.app'
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Cron-Token');
+}
+function handlePreflight(req, res) {
+  if (req.method === 'OPTIONS') {
+    setCors(res);
+    res.status(204).end();
+    return true;
+  }
+  return false;
+}
 
 /** Inicializa Firebase Admin usando el JSON del service account en Base64 */
 function ensureFirebase() {
@@ -41,6 +57,11 @@ function ensureVapid() {
 
   webpush.setVapidDetails('mailto:you@example.com', pub, pri);
   return { pub, pri };
+}
+
+/** id estable y seguro para doc de suscripción */
+function subDocId(endpoint = '') {
+  return crypto.createHash('sha256').update(endpoint).digest('hex'); // 64 chars, seguro para Firestore
 }
 
 // -------- helpers UI texto -------
@@ -141,10 +162,28 @@ async function checkFeedAndNotify({ force = false } = {}) {
   return { ok: true, sent, guid: item.guid, title: item.title };
 }
 
+function requireCronToken(req) {
+  const qs = req.query || {};
+  const headerToken = req.headers['x-cron-token'] || '';
+  const bear = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  const token = qs.token || headerToken || bear || '';
+  if (process.env.CRON_TOKEN && token !== process.env.CRON_TOKEN) {
+    const err = new Error('Unauthorized (bad CRON_TOKEN)');
+    err.status = 401;
+    throw err;
+  }
+}
+
 module.exports = {
+  setCors,
+  handlePreflight,
+
   ensureFirebase,
   getCollections,
   ensureVapid,
   sendToAll,
   checkFeedAndNotify,
+
+  subDocId,
+  requireCronToken,
 };

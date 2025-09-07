@@ -1,3 +1,12 @@
-module.exports = (req, res) => {
-  res.status(200).json({ key: process.env.VAPID_PUBLIC_KEY || '' });
+const { ensureVapid, setCors, handlePreflight } = require('./_lib');
+
+module.exports = async (req, res) => {
+  if (handlePreflight(req, res)) return;
+  setCors(res);
+  try {
+    const { pub } = ensureVapid();
+    res.json({ key: pub });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
 };

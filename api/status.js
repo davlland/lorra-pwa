@@ -1,7 +1,8 @@
-// api/status.js
-const { ensureFirebase, getCollections } = require('./_lib');
+const { ensureFirebase, getCollections, setCors, handlePreflight } = require('./_lib');
 
 module.exports = async (_req, res) => {
+  if (handlePreflight(_req, res)) return;
+  setCors(res);
   try {
     const db = ensureFirebase();
     const { subsCol, controlDoc } = getCollections(db);

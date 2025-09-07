@@ -1,31 +1,27 @@
-const admin = require('firebase-admin');
-const crypto = require('crypto');
-
-function initAdmin() {
-  if (!admin.apps.length) {
-    const b64 = process.env.FIREBASE_SERVICE_ACCOUNT_B64;
-    if (!b64) throw new Error('Falta FIREBASE_SERVICE_ACCOUNT_B64');
-    const json = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
-    admin.initializeApp({ credential: admin.credential.cert(json) });
-  }
-  return admin.firestore();
-}
+const { ensureFirebase, getCollections, subDocId, setCors, handlePreflight } = require('./_lib');
 
 module.exports = async (req, res) => {
+  if (handlePreflight(req, res)) return;
+  setCors(res);
   try {
-    if (req.method !== 'POST') return res.status(405).end('Method Not Allowed');
-    const sub = req.body;
+    if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Method not allowed' });
+
+    let body = req.body;
+    if (typeof body === 'string') {
+      try { body = JSON.parse(body); } catch {}
+    }
+    const sub = body || {};
     if (!sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth) {
       return res.status(400).json({ ok: false, error: 'Suscripción inválida' });
     }
 
-    const db = initAdmin();
-    const id = crypto.createHash('sha256').update(sub.endpoint).digest('hex');
-    await db.collection('subscriptions').doc(id).set(sub, { merge: true });
+    const db = ensureFirebase();
+    const { subsCol } = getCollections(db);
+    const id = subDocId(sub.endpoint);
+    await subsCol.doc(id).set(sub, { merge: true });
 
     res.status(201).json({ ok: true });
   } catch (e) {
-    console.error('subscribe error:', e);
     res.status(500).json({ ok: false, error: e.message });
   }
 };
