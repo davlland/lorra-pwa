@@ -1,50 +1,57 @@
-// api/_lib.js  (CommonJS)
+// api/_lib.js
+// Utilidades compartidas por las functions de la API (Vercel)
+
 const admin = require('firebase-admin');
 const webpush = require('web-push');
 const { XMLParser } = require('fast-xml-parser');
-const crypto = require('crypto');
 
-// ---------- Firebase Admin (con env base64) ----------
-if (!admin.apps.length) {
-  const b64 = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
-  if (!b64) throw new Error('FIREBASE_SERVICE_ACCOUNT_BASE64 no está definido');
-  const serviceAccount = JSON.parse(
-    Buffer.from(b64, 'base64').toString('utf-8')
-  );
-  admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+let firebaseReady = false;
+
+/** Inicializa Firebase Admin usando el JSON del service account en Base64 */
+function ensureFirebase() {
+  if (!firebaseReady) {
+    const b64 = process.env.FIREBASE_SERVICE_ACCOUNT_B64;
+    if (!b64) throw new Error('Falta FIREBASE_SERVICE_ACCOUNT_B64');
+
+    const json = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+
+    if (!admin.apps || !admin.apps.length) {
+      admin.initializeApp({ credential: admin.credential.cert(json) });
+    }
+    firebaseReady = true;
+  }
+  return admin.firestore();
 }
-const db = admin.firestore();
-const SUBS_COL = db.collection('subscriptions');
-const CONTROL_DOC = db.collection('control').doc('state');
 
-// ---------- VAPID ----------
-const VAPID_PUBLIC_KEY  = process.env.VAPID_PUBLIC_KEY;
-const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
-if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
-  throw new Error('Faltan VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY');
+const SUBS_COL_NAME = 'subscriptions';
+const CONTROL_DOC_PATH = 'control/state';
+
+function getCollections(db) {
+  return {
+    subsCol: db.collection(SUBS_COL_NAME),
+    controlDoc: db.doc(CONTROL_DOC_PATH),
+  };
 }
-webpush.setVapidDetails('mailto:you@example.com', VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 
-// ---------- Utils ----------
+/** Configura web-push con VAPID desde variables de entorno */
+function ensureVapid() {
+  const pub = process.env.VAPID_PUBLIC_KEY;
+  const pri = process.env.VAPID_PRIVATE_KEY;
+  if (!pub || !pri) throw new Error('Faltan VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY');
+
+  webpush.setVapidDetails('mailto:you@example.com', pub, pri);
+  return { pub, pri };
+}
+
+// -------- helpers UI texto -------
 function stripHtml(html = '') {
   return String(html).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 function truncate(text = '', n = 180) {
   return text.length > n ? text.slice(0, n) + '…' : text;
 }
-async function getControl() {
-  const s = await CONTROL_DOC.get();
-  return s.exists ? s.data() : {};
-}
-async function setControl(patch) {
-  await CONTROL_DOC.set(patch, { merge: true });
-}
-async function getAllSubscriptions() {
-  const snap = await SUBS_COL.get();
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
-}
 
-// ---------- RSS ----------
+// -------- RSS --------
 async function getLatestFromFeed() {
   const resp = await fetch('https://lorra.eus/feed');
   if (!resp.ok) throw new Error(`HTTP ${resp.status} al leer el feed`);
@@ -52,6 +59,7 @@ async function getLatestFromFeed() {
 
   const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '' });
   const data = parser.parse(xmlText);
+
   const channel = data?.rss?.channel;
   const items = Array.isArray(channel?.item) ? channel.item : (channel?.item ? [channel.item] : []);
   if (!items.length) throw new Error('Feed vacío');
@@ -71,9 +79,15 @@ async function getLatestFromFeed() {
   };
 }
 
-// ---------- Push ----------
+// -------- push a todos --------
 async function sendToAll(payloadJson) {
-  const subs = await getAllSubscriptions();
+  const db = ensureFirebase();
+  ensureVapid();
+  const { subsCol } = getCollections(db);
+
+  const snap = await subsCol.get();
+  const subs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
   const results = await Promise.allSettled(
     subs.map(s =>
       webpush
@@ -82,32 +96,34 @@ async function sendToAll(payloadJson) {
     )
   );
 
-  // limpieza de suscripciones inválidas (410/404)
+  // Limpieza de suscripciones inválidas
   for (const r of results) {
     if (r.status === 'rejected') {
-      const info = r.reason;
-      const code = info?.err?.statusCode;
+      const code = r.reason?.err?.statusCode;
       if (code === 404 || code === 410) {
-        await SUBS_COL.doc(info.id).delete();
+        try { await subsCol.doc(r.reason.id).delete(); } catch (e) { /* ignore */ }
       } else {
-        console.error('Error push:', code, info?.err?.body || info?.err?.message);
+        console.error('Error push:', code, r.reason?.err?.body || r.reason?.err?.message);
       }
     }
   }
   return results.filter(r => r.status === 'fulfilled').length;
 }
 
-// ---------- Orquestador ----------
-async function checkFeedAndNotify({ force = false, manual = false } = {}) {
+// -------- chequea feed + notifica si hay novedad --------
+async function checkFeedAndNotify({ force = false } = {}) {
+  const db = ensureFirebase();
+  ensureVapid();
+  const { controlDoc } = getCollections(db);
+
   const item = await getLatestFromFeed();
+  const snap = await controlDoc.get();
+  const state = snap.exists ? snap.data() : {};
   const nowIso = new Date().toISOString();
-  const state = await getControl();
-  const lastGuid = state.lastGuidSent || null;
 
-  await setControl({ lastCheckAt: nowIso });
+  await controlDoc.set({ lastCheckAt: nowIso }, { merge: true });
 
-  if (!force && lastGuid && item.guid === lastGuid) {
-    if (manual) console.log('[cron] no_new', item.guid);
+  if (!force && state.lastGuidSent && state.lastGuidSent === item.guid) {
     return { ok: true, sent: 0, reason: 'no_new', guid: item.guid };
   }
 
@@ -119,10 +135,16 @@ async function checkFeedAndNotify({ force = false, manual = false } = {}) {
   });
 
   const sent = await sendToAll(payload);
-  await setControl({ lastGuidSent: item.guid, lastSendAt: nowIso });
 
-  if (manual) console.log(`[cron] sent=${sent} guid=${item.guid}`);
+  await controlDoc.set({ lastGuidSent: item.guid, lastSendAt: nowIso }, { merge: true });
+
   return { ok: true, sent, guid: item.guid, title: item.title };
 }
 
-module.exports = { checkFeedAndNotify };
+module.exports = {
+  ensureFirebase,
+  getCollections,
+  ensureVapid,
+  sendToAll,
+  checkFeedAndNotify,
+};

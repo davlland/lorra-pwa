@@ -1,27 +1,25 @@
-const admin = require('firebase-admin');
-
-function initAdmin() {
-  if (!admin.apps.length) {
-    const b64 = process.env.FIREBASE_SERVICE_ACCOUNT_B64;
-    if (!b64) throw new Error('Falta FIREBASE_SERVICE_ACCOUNT_B64');
-    const json = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
-    admin.initializeApp({ credential: admin.credential.cert(json) });
-  }
-  return admin.firestore();
-}
+// api/status.js
+const { ensureFirebase, getCollections } = require('./_lib');
 
 module.exports = async (_req, res) => {
   try {
-    const db = initAdmin();
-    const subsSnap = await db.collection('subscriptions').get();
-    const stateSnap = await db.collection('control').doc('state').get();
+    const db = ensureFirebase();
+    const { subsCol, controlDoc } = getCollections(db);
+
+    const subsSnap = await subsCol.get();
+    const stateSnap = await controlDoc.get();
+
     res.json({
       ok: true,
+      env: {
+        FIREBASE_SERVICE_ACCOUNT_B64: !!process.env.FIREBASE_SERVICE_ACCOUNT_B64,
+        VAPID_PUBLIC_KEY: !!process.env.VAPID_PUBLIC_KEY,
+        VAPID_PRIVATE_KEY: !!process.env.VAPID_PRIVATE_KEY,
+      },
       subs: subsSnap.size,
-      state: stateSnap.exists ? stateSnap.data() : {}
+      state: stateSnap.exists ? stateSnap.data() : {},
     });
   } catch (e) {
-    console.error('status error:', e);
     res.status(500).json({ ok: false, error: e.message });
   }
 };
