@@ -1,80 +1,124 @@
 import { useEffect, useMemo, useState } from 'react';
-
-const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
+import useFeed from '../hooks/useFeed';
+import './NewsList.css';
 
 const PAGE_SIZE = 5;
 
 export default function NewsList() {
   const [page, setPage] = useState(0);
-  const [items, setItems] = useState([]);
-  const [total, setTotal] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState('');
+  const { items, pageCount, loading, error } = useFeed(page, PAGE_SIZE);
 
-  const maxPage = useMemo(() => {
-    if (total == null) return 0;
-    return Math.max(0, Math.ceil(total / PAGE_SIZE) - 1);
-  }, [total]);
+  // Guardar enlaces leídos en localStorage
+  const [read, setRead] = useState(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem('readLinks') || '[]'));
+    } catch {
+      return new Set();
+    }
+  });
+
+  const markRead = (link) => {
+    const next = new Set(read);
+    next.add(link);
+    setRead(next);
+    localStorage.setItem('readLinks', JSON.stringify([...next]));
+  };
 
   useEffect(() => {
-    let abort = false;
-    async function load() {
-      if (!API_BASE) {
-        setErr('Falta VITE_API_BASE');
-        return;
-      }
-      setLoading(true);
-      setErr('');
-      try {
-        const url = `${API_BASE}/api/feed?page=${page}&pageSize=${PAGE_SIZE}`;
-        const r = await fetch(url, { headers: { Accept: 'application/json' } });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const data = await r.json();
-        if (abort) return;
-        if (!data.ok) throw new Error(data.error || 'Error API');
-        setItems(data.items || []);
-        setTotal(typeof data.total === 'number' ? data.total : (data.items?.length ?? 0));
-      } catch (e) {
-        if (!abort) setErr(e.message);
-      } finally {
-        if (!abort) setLoading(false);
-      }
-    }
-    load();
-    return () => { abort = true; };
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [page]);
+
+  const canPrev = page > 0;
+  const canNext = page + 1 < pageCount;
+  const list = useMemo(() => items || [], [items]);
 
   return (
     <section className="news">
-      <header className="news__header">
-        <h2>Últimas noticias</h2>
-        <div className="news__pager">
-          <button disabled={page <= 0 || loading} onClick={() => setPage(p => Math.max(0, p - 1))}>
-            « Anterior
-          </button>
-          <span className="news__pageinfo">
-            {total == null ? '...' : `Página ${page + 1} de ${maxPage + 1}`}
-          </span>
-          <button disabled={total == null || page >= maxPage || loading} onClick={() => setPage(p => p + 1)}>
-            Siguiente »
-          </button>
+      <h2 className="news__title">Últimas noticias</h2>
+
+      <Pager
+        page={page}
+        pageCount={pageCount}
+        onPrev={() => canPrev && setPage((p) => p - 1)}
+        onNext={() => canNext && setPage((p) => p + 1)}
+        disabledPrev={!canPrev}
+        disabledNext={!canNext}
+      />
+
+      {loading && <div className="news__skel" aria-live="polite">Cargando…</div>}
+      {error && (
+        <div className="news__error" role="alert">
+          Error: {String(error.message || error)}
         </div>
-      </header>
+      )}
 
-      {loading && <p className="muted">Cargando…</p>}
-      {err && <p className="error">Error: {err}</p>}
-
-      <ul className="news__list">
-        {items.map((it) => (
-          <li key={it.guid || it.link} className="news__item">
-            <a href={it.link} target="_blank" rel="noreferrer" className="news__title">
-              {it.title || '(sin título)'}
+      {list.map((it) => (
+        <article
+          key={it.guid || it.link}
+          className={`news-card ${read.has(it.link) ? 'is-read' : ''}`}
+        >
+          <header className="news-card__head">
+            <a
+              href={it.link}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => markRead(it.link)}
+              className="news-card__title"
+            >
+              {it.title}
             </a>
-            {it.isoDate && <time className="news__date">{new Date(it.isoDate).toLocaleString()}</time>}
-            {it.description && <p className="news__desc">{it.description}</p>}
-          </li>
-        ))}
-      </ul>
+            {it.isoDate && (
+              <time className="news-card__time">
+                {new Date(it.isoDate).toLocaleString('es-ES', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </time>
+            )}
+          </header>
+          <p className="news-card__desc">{it.description}</p>
+        </article>
+      ))}
+
+      <Pager
+        page={page}
+        pageCount={pageCount}
+        onPrev={() => canPrev && setPage((p) => p - 1)}
+        onNext={() => canNext && setPage((p) => p + 1)}
+        disabledPrev={!canPrev}
+        disabledNext={!canNext}
+      />
     </section>
+  );
+}
+
+function Pager({ page, pageCount, onPrev, onNext, disabledPrev, disabledNext }) {
+  return (
+    <div className="pager">
+      <button
+        className="btn"
+        onClick={onPrev}
+        disabled={disabledPrev}
+        aria-label="Página anterior"
+      >
+        « Anterior
+      </button>
+
+      <span className="pager__info" aria-live="polite">
+        Página {page + 1} de {pageCount}
+      </span>
+
+      <button
+        className="btn"
+        onClick={onNext}
+        disabled={disabledNext}
+        aria-label="Página siguiente"
+      >
+        Siguiente »
+      </button>
+    </div>
   );
 }

@@ -2,6 +2,7 @@ import './App.css';
 import SubscribeButton from './SubscribeButton';
 import NewsList from './components/NewsList.jsx';
 
+
 export default function App() {
   const apiBase = import.meta.env.VITE_API_BASE || '(no configurado)';
   return (
