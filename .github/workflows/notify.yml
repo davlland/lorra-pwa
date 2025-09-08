@@ -1,0 +1,19 @@
+﻿name: Notify latest news
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # cada 15 min (UTC)
+  workflow_dispatch:         # permite lanzarlo a mano
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/notify-latest
+        run: |
+          set -e
+          curl -fsS -X POST "https://lorra-api.vercel.app/api/notify-latest" \
+               -H "x-cron-token: $CRON_TOKEN" \
+               -H "User-Agent: lorra-cron/1.0"
+        env:
+          CRON_TOKEN: ${{ secrets.CRON_TOKEN }}
