@@ -6,8 +6,8 @@
   "dependencies": {
     "fast-xml-parser": "^4.3.5",
     "firebase-admin": "^11.11.1",
-    "web-push": "^3.6.6",
-    "he": "^1.2.0"
+    "he": "^1.2.0",
+    "web-push": "^3.6.6"
   },
   "overrides": {
     "debug": "^4.3.4",
