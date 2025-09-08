@@ -1,3 +1,4 @@
+// frontend/src/components/NewsList.jsx
 import { useEffect, useMemo, useState } from 'react';
 import useFeed from '../hooks/useFeed';
 import './NewsList.css';
@@ -34,13 +35,15 @@ export default function NewsList() {
 
   return (
     <section className="news">
-      <h2 className="news__title">Últimas noticias</h2>
+      <div className="news__header">
+        <h2 className="news__title">Últimas noticias</h2>
+      </div>
 
       <Pager
         page={page}
         pageCount={pageCount}
-        onPrev={() => canPrev && setPage((p) => p - 1)}
-        onNext={() => canNext && setPage((p) => p + 1)}
+        onPrev={() => canPrev && setPage(p => p - 1)}
+        onNext={() => canNext && setPage(p => p + 1)}
         disabledPrev={!canPrev}
         disabledNext={!canNext}
       />
@@ -63,18 +66,15 @@ export default function NewsList() {
               target="_blank"
               rel="noreferrer"
               onClick={() => markRead(it.link)}
-              className="news-card__title"
+            className="news-card__title"
             >
               {it.title}
             </a>
             {it.isoDate && (
               <time className="news-card__time">
                 {new Date(it.isoDate).toLocaleString('es-ES', {
-                  day: '2-digit',
-                  month: '2-digit',
-                  year: 'numeric',
-                  hour: '2-digit',
-                  minute: '2-digit',
+                  day: '2-digit', month: '2-digit', year: 'numeric',
+                  hour: '2-digit', minute: '2-digit',
                 })}
               </time>
             )}
@@ -86,8 +86,8 @@ export default function NewsList() {
       <Pager
         page={page}
         pageCount={pageCount}
-        onPrev={() => canPrev && setPage((p) => p - 1)}
-        onNext={() => canNext && setPage((p) => p + 1)}
+        onPrev={() => canPrev && setPage(p => p - 1)}
+        onNext={() => canNext && setPage(p => p + 1)}
         disabledPrev={!canPrev}
         disabledNext={!canNext}
       />
@@ -98,25 +98,13 @@ export default function NewsList() {
 function Pager({ page, pageCount, onPrev, onNext, disabledPrev, disabledNext }) {
   return (
     <div className="pager">
-      <button
-        className="btn"
-        onClick={onPrev}
-        disabled={disabledPrev}
-        aria-label="Página anterior"
-      >
+      <button className="btn" onClick={onPrev} disabled={disabledPrev} aria-label="Página anterior">
         « Anterior
       </button>
-
       <span className="pager__info" aria-live="polite">
         Página {page + 1} de {pageCount}
       </span>
-
-      <button
-        className="btn"
-        onClick={onNext}
-        disabled={disabledNext}
-        aria-label="Página siguiente"
-      >
+      <button className="btn" onClick={onNext} disabled={disabledNext} aria-label="Página siguiente">
         Siguiente »
       </button>
     </div>
