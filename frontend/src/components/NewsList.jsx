@@ -1,118 +1,80 @@
-// frontend/src/components/NewsList.jsx
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
-const API_BASE = import.meta.env.VITE_API_BASE;
+const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
 
-function formatDate(iso) {
-  if (!iso) return '';
-  try {
-    return new Intl.DateTimeFormat('es-ES', {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    }).format(new Date(iso));
-  } catch {
-    return iso;
-  }
-}
+const PAGE_SIZE = 5;
 
 export default function NewsList() {
+  const [page, setPage] = useState(0);
   const [items, setItems] = useState([]);
-  const [state, setState] = useState('loading'); // loading | ok | error
-  const [error, setError] = useState(null);
+  const [total, setTotal] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState('');
+
+  const maxPage = useMemo(() => {
+    if (total == null) return 0;
+    return Math.max(0, Math.ceil(total / PAGE_SIZE) - 1);
+  }, [total]);
 
   useEffect(() => {
     let abort = false;
-
     async function load() {
-      setState('loading');
-      setError(null);
-
-      // Intenta leer último snapshot local (para UX)
-      const cached = localStorage.getItem('lorra:news');
-      if (cached && items.length === 0) {
-        try {
-          const parsed = JSON.parse(cached);
-          if (!abort && parsed?.length) setItems(parsed);
-        } catch {}
+      if (!API_BASE) {
+        setErr('Falta VITE_API_BASE');
+        return;
       }
-
+      setLoading(true);
+      setErr('');
       try {
-        const r = await fetch(`${API_BASE}/api/feed`);
+        const url = `${API_BASE}/api/feed?page=${page}&pageSize=${PAGE_SIZE}`;
+        const r = await fetch(url, { headers: { Accept: 'application/json' } });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
         if (abort) return;
-
-        if (data?.ok && Array.isArray(data.items)) {
-          setItems(data.items);
-          setState('ok');
-          localStorage.setItem('lorra:news', JSON.stringify(data.items));
-        } else {
-          throw new Error('Respuesta inválida');
-        }
+        if (!data.ok) throw new Error(data.error || 'Error API');
+        setItems(data.items || []);
+        setTotal(typeof data.total === 'number' ? data.total : (data.items?.length ?? 0));
       } catch (e) {
-        console.error(e);
-        if (!abort) {
-          setState('error');
-          setError(e.message);
-        }
+        if (!abort) setErr(e.message);
+      } finally {
+        if (!abort) setLoading(false);
       }
     }
-
     load();
     return () => { abort = true; };
-  }, []);
-
-  if (state === 'loading' && items.length === 0) {
-    return <p className="text-center opacity-70">Cargando noticias…</p>;
-  }
-
-  if (state === 'error' && items.length === 0) {
-    return (
-      <div className="text-center text-red-400">
-        <p>Ups, no pudimos cargar el feed.</p>
-        <small>{error}</small>
-      </div>
-    );
-  }
+  }, [page]);
 
   return (
-    <div className="mx-auto max-w-3xl mt-8 px-4">
-      <h2 className="text-2xl font-semibold mb-4">Últimas noticias</h2>
+    <section className="news">
+      <header className="news__header">
+        <h2>Últimas noticias</h2>
+        <div className="news__pager">
+          <button disabled={page <= 0 || loading} onClick={() => setPage(p => Math.max(0, p - 1))}>
+            « Anterior
+          </button>
+          <span className="news__pageinfo">
+            {total == null ? '...' : `Página ${page + 1} de ${maxPage + 1}`}
+          </span>
+          <button disabled={total == null || page >= maxPage || loading} onClick={() => setPage(p => p + 1)}>
+            Siguiente »
+          </button>
+        </div>
+      </header>
 
-      <ul className="space-y-3">
-        {items.map((it, idx) => (
-          <li key={it.guid || it.link || idx} className="bg-zinc-900/40 rounded-xl p-4 border border-zinc-800">
-            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-medium leading-snug">{it.title}</h3>
-                {it.isoDate && (
-                  <p className="text-sm opacity-70 mt-1">{formatDate(it.isoDate)}</p>
-                )}
-                {it.description && (
-                  <p className="text-sm opacity-80 mt-2 line-clamp-2">{it.description}</p>
-                )}
-              </div>
+      {loading && <p className="muted">Cargando…</p>}
+      {err && <p className="error">Error: {err}</p>}
 
-              <div className="shrink-0">
-                <a
-                  className="inline-flex items-center rounded-lg px-3 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 transition-colors"
-                  href={it.link}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Abrir
-                </a>
-              </div>
-            </div>
+      <ul className="news__list">
+        {items.map((it) => (
+          <li key={it.guid || it.link} className="news__item">
+            <a href={it.link} target="_blank" rel="noreferrer" className="news__title">
+              {it.title || '(sin título)'}
+            </a>
+            {it.isoDate && <time className="news__date">{new Date(it.isoDate).toLocaleString()}</time>}
+            {it.description && <p className="news__desc">{it.description}</p>}
           </li>
         ))}
       </ul>
-
-      {state === 'error' && items.length > 0 && (
-        <p className="text-center text-yellow-400 mt-4">
-          Mostrando datos en caché. Error al actualizar: {error}
-        </p>
-      )}
-    </div>
+    </section>
   );
 }
