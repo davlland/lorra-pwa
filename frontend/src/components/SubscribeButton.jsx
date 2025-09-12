@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
+import './SubscribeButton.css';
 
 const API_BASE = import.meta.env.VITE_API_BASE; // p. ej. https://lorra-api.vercel.app
 
 function b64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding)
-    .replace(/-/g, '+')
-    .replace(/_/g, '/');
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
   const raw = atob(base64);
   const arr = new Uint8Array(raw.length);
   for (let i = 0; i < raw.length; ++i) arr[i] = raw.charCodeAt(i);
@@ -14,7 +13,9 @@ function b64ToUint8Array(base64String) {
 }
 
 export default function SubscribeButton() {
-  const [perm, setPerm] = useState(Notification.permission);         // 'default' | 'granted' | 'denied'
+  const [perm, setPerm] = useState(
+    typeof Notification !== 'undefined' ? Notification.permission : 'default'
+  );
   const [subscribed, setSubscribed] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -28,17 +29,21 @@ export default function SubscribeButton() {
   }, []);
 
   useEffect(() => {
-    setPerm(Notification.permission);
-
+    if (typeof Notification !== 'undefined') {
+      setPerm(Notification.permission);
+    }
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
 
     navigator.serviceWorker.ready
-      .then(reg => reg.pushManager.getSubscription())
-      .then(s => setSubscribed(Boolean(s)))
+      .then((reg) => reg.pushManager.getSubscription())
+      .then((s) => setSubscribed(Boolean(s)))
       .catch(() => {});
   }, []);
 
   async function ensurePermission() {
+    if (typeof Notification === 'undefined') {
+      throw new Error('Notifications no soportadas en este navegador.');
+    }
     if (Notification.permission !== 'granted') {
       const res = await Notification.requestPermission();
       setPerm(res);
@@ -55,6 +60,7 @@ export default function SubscribeButton() {
 
       // 1) obtener VAPID pública
       const r = await fetch(`${API_BASE}/api/vapidPublicKey`);
+      if (!r.ok) throw new Error('No se pudo obtener la clave VAPID pública');
       const { key } = await r.json();
 
       // 2) subscribirse en el navegador
@@ -63,16 +69,17 @@ export default function SubscribeButton() {
         applicationServerKey: b64ToUint8Array(key),
       });
 
-      // 3) guardar en backend
-      await fetch(`${API_BASE}/api/subscribe`, {
+      // 3) guardar en backend (aceptamos body plano o { subscription })
+      const s = await fetch(`${API_BASE}/api/subscribe`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(sub),
+        body: JSON.stringify({ subscription: sub }),
       });
+      if (!s.ok) throw new Error('No se pudo registrar la suscripción en la API');
 
       setSubscribed(true);
     } catch (e) {
-      alert(e.message || 'Error al suscribirse');
+      alert(e?.message || 'Error al suscribirse');
     } finally {
       setBusy(false);
     }
@@ -93,59 +100,50 @@ export default function SubscribeButton() {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ endpoint: sub.endpoint }),
-      });
+      }).catch(() => {});
 
-      await sub.unsubscribe();
+      await sub.unsubscribe().catch(() => {});
       setSubscribed(false);
     } catch (e) {
-      alert(e.message || 'Error al darse de baja');
+      alert(e?.message || 'Error al darse de baja');
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div style={{ display: 'grid', gap: 12, justifyItems: 'center' }}>
-      <small style={{ opacity: .7 }}>{backendInfo}</small>
-      <div style={{ fontSize: 14, opacity: .8 }}>
+    <div className="subsCard">
+      <small className="muted">{backendInfo}</small>
+      <div className="muted">
         Permiso de notificaciones: <strong>{perm}</strong>
       </div>
 
       {!subscribed ? (
-        <button
-          onClick={subscribe}
-          disabled={busy}
-          style={{
-            padding: '10px 18px',
-            borderRadius: 10,
-            border: '1px solid #555',
-            background: '#222',
-            color: '#fff',
-            cursor: busy ? 'not-allowed' : 'pointer'
-          }}
-        >
-          {busy ? '…' : 'Suscribirme'}
-        </button>
-      ) : (
-        <div style={{ display: 'grid', gap: 10, justifyItems: 'center' }}>
-          <div style={{ color: '#4ade80', fontWeight: 600 }}>
-            ✓ Suscrito
-          </div>
+        <div className="actions">
           <button
-            onClick={unsubscribe}
+            className="btn btn--primary"
+            onClick={subscribe}
             disabled={busy}
-            style={{
-              padding: '10px 18px',
-              borderRadius: 10,
-              background: '#b91c1c',
-              color: '#fff',
-              border: 'none',
-              cursor: busy ? 'not-allowed' : 'pointer'
-            }}
+            aria-busy={busy ? 'true' : 'false'}
           >
-            {busy ? '…' : 'Darse de baja'}
+            {busy ? '…' : 'Suscribirme'}
           </button>
         </div>
+      ) : (
+        <>
+          <div className="muted">✓ Suscrito</div>
+          <div className="actions">
+            <button
+              className="btn"
+              onClick={unsubscribe}
+              disabled={busy}
+              aria-busy={busy ? 'true' : 'false'}
+              title="Cancelar suscripción"
+            >
+              {busy ? '…' : 'Darse de baja'}
+            </button>
+          </div>
+        </>
       )}
     </div>
   );

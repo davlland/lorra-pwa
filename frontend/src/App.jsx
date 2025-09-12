@@ -1,24 +1,30 @@
-import './App.css';
-import SubscribeButton from './SubscribeButton';
-import NewsList from './components/NewsList.jsx';
 
-export default function App() {
+
+import SubscribeButton from './components/SubscribeButton';
+import NewsList from './components/NewsList';
+
+export default function App(){
   return (
-    <div className="App">
-      <div style={{ display: 'grid', gap: 20, justifyItems: 'center', marginTop: 40 }}>
+    <div className="container">
+      <div className="logoRow">
         <img src="/vite.svg" alt="vite" width="96" height="96" />
         <img src="/react.svg" alt="react" width="96" height="96" />
-        <h1>Lorra News</h1>
+        <h1 className="headline">Lorra News</h1>
+      </div>
 
-        {/* Suscripción push */}
-        <div className="card" style={{ width: '100%', maxWidth: 520 }}>
-          <SubscribeButton />
-        </div>
+      {/* Backend info (opcional) */}
+      <div className="inlineNote subtle">
+        Backend: https://lorra-api.vercel.app
+      </div>
 
-        {/* Lista de noticias */}
-        <div style={{ width: '100%', maxWidth: 920 }}>
-          <NewsList />
-        </div>
+      {/* Suscripción push */}
+      <div className="card" style={{ maxWidth: 520 }}>
+        <SubscribeButton />
+      </div>
+
+      {/* Lista de noticias */}
+      <div style={{ width: '100%', maxWidth: 920, marginTop: 16 }}>
+        <NewsList />
       </div>
     </div>
   );

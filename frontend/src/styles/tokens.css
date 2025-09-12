@@ -1,0 +1,26 @@
+/* src/styles/tokens.css */
+
+/* Tipografía similar al look limpio de LORRA (puedes cambiarla) */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+
+:root{
+  /* Colores (ajústalos para acercarte a lorra.eus) */
+  --brand: #8CB63E;          /* verde principal */
+  --brand-600: #6E922F;
+  --surface: #0f0f0f;        /* fondo oscuro PWA */
+  --card: #121212;           /* fondo tarjetas */
+  --text: #e6e6e6;
+  --muted: #9aa;
+  --error: #f66;
+  --border: #333;
+}
+
+*{ box-sizing: border-box; }
+html, body, #root{ height: 100%; }
+
+body{
+  margin: 0;
+  font-family: 'Poppins', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  color: var(--text);
+  background: var(--surface);
+}

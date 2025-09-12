@@ -1,0 +1,40 @@
+/* src/styles/layout.css */
+
+.container{
+  max-width: 920px;
+  margin: 24px auto;
+  padding: 0 16px;
+}
+
+.logoRow{
+  display: grid;
+  gap: 20px;
+  justify-items: center;
+  margin-top: 40px;
+}
+
+.headline{
+  margin: 0;
+  font-size: 2.75rem;
+  text-align: center;
+  letter-spacing: .5px;
+}
+
+.subtle{
+  color: var(--muted);
+}
+
+.card{
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+/* Pequeña etiqueta tipo “Backend: …” */
+.inlineNote{
+  display: inline-block;
+  font-size: .85rem;
+  opacity: .85;
+  margin: 4px 0;
+}

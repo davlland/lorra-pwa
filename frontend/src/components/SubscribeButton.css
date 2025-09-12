@@ -1,0 +1,33 @@
+/* src/components/SubscribeButton.css */
+
+.subsCard{
+  display: grid;
+  gap: 12px;
+}
+
+.actions{
+  display: flex;
+  gap: 8px;
+}
+
+.btn{
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  padding: 10px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.btn:hover{ border-color: var(--brand); }
+.btn--primary{
+  background: var(--brand);
+  border-color: var(--brand-600);
+  color: #0b0b0b;
+}
+
+/* opcional, si no existe en App.css */
+.muted{
+  opacity: .8;
+  font-size: 0.9rem;
+}
