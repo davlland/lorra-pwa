@@ -1,131 +1,151 @@
-// frontend/src/SubscribeButton.jsx
-import { useEffect, useState } from 'react';
-import {
-  API_BASE_FOR_UI,
-  registerSW,
-  getExistingSubscription,
-  subscribe,
-  unsubscribe,
-  testPush,
-  notifyLatest,
-  getStatus,
-} from './push';
+import { useEffect, useMemo, useState } from 'react';
+
+const API_BASE = import.meta.env.VITE_API_BASE; // p. ej. https://lorra-api.vercel.app
+
+function b64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding)
+    .replace(/-/g, '+')
+    .replace(/_/g, '/');
+  const raw = atob(base64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; ++i) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
 
 export default function SubscribeButton() {
-  const [loading, setLoading] = useState(false);
+  const [perm, setPerm] = useState(Notification.permission);         // 'default' | 'granted' | 'denied'
   const [subscribed, setSubscribed] = useState(false);
-  const [perm, setPerm] = useState(Notification?.permission || 'default');
-  const [status, setStatus] = useState(null);
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const reg = await registerSW();
-        const sub = await getExistingSubscription(reg);
-        setSubscribed(!!sub);
-      } catch (e) {
-        console.error(e);
-      }
-    })();
-    setPerm(Notification?.permission || 'default');
+  const backendInfo = useMemo(() => {
+    try {
+      const u = new URL(API_BASE);
+      return `Backend: ${u.origin}`;
+    } catch {
+      return `Backend: ${API_BASE}`;
+    }
   }, []);
 
-  async function handleSubscribe() {
-    try {
-      setLoading(true);
-      await subscribe();
-      setSubscribed(true);
-      setPerm(Notification.permission);
-    } catch (e) {
-      console.error(e);
-      alert(e.message);
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    setPerm(Notification.permission);
+
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+
+    navigator.serviceWorker.ready
+      .then(reg => reg.pushManager.getSubscription())
+      .then(s => setSubscribed(Boolean(s)))
+      .catch(() => {});
+  }, []);
+
+  async function ensurePermission() {
+    if (Notification.permission !== 'granted') {
+      const res = await Notification.requestPermission();
+      setPerm(res);
+      if (res !== 'granted') throw new Error('Permiso de notificaciones no concedido.');
     }
   }
 
-  async function handleUnsubscribe() {
+  async function subscribe() {
     try {
-      setLoading(true);
-      await unsubscribe();
+      setBusy(true);
+      await ensurePermission();
+
+      const reg = await navigator.serviceWorker.ready;
+
+      // 1) obtener VAPID pública
+      const r = await fetch(`${API_BASE}/api/vapidPublicKey`);
+      const { key } = await r.json();
+
+      // 2) subscribirse en el navegador
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: b64ToUint8Array(key),
+      });
+
+      // 3) guardar en backend
+      await fetch(`${API_BASE}/api/subscribe`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(sub),
+      });
+
+      setSubscribed(true);
+    } catch (e) {
+      alert(e.message || 'Error al suscribirse');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function unsubscribe() {
+    try {
+      setBusy(true);
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        setSubscribed(false);
+        return;
+      }
+
+      // avisar al backend para borrar
+      await fetch(`${API_BASE}/api/unsubscribe`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ endpoint: sub.endpoint }),
+      });
+
+      await sub.unsubscribe();
       setSubscribed(false);
     } catch (e) {
-      console.error(e);
-      alert(e.message);
+      alert(e.message || 'Error al darse de baja');
     } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleTest() {
-    try {
-      setLoading(true);
-      const r = await testPush();
-      console.log(r);
-      alert(`Test enviado. OK=${r.ok}, sent=${r.sent}`);
-    } catch (e) {
-      console.error(e);
-      alert(e.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleNotifyLatest(force = false) {
-    try {
-      setLoading(true);
-      const r = await notifyLatest(force);
-      console.log(r);
-      alert(JSON.stringify(r));
-    } catch (e) {
-      console.error(e);
-      alert(e.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleStatus() {
-    try {
-      const r = await getStatus();
-      setStatus(r);
-      console.log(r);
-      alert('Mira la consola (status)');
-    } catch (e) {
-      console.error(e);
-      alert(e.message);
+      setBusy(false);
     }
   }
 
   return (
-    <div style={{ display: 'grid', gap: 10, justifyItems: 'center' }}>
-      <small>Backend: {API_BASE_FOR_UI}</small>
-      <small>Permiso de notificaciones: <b>{perm}</b></small>
+    <div style={{ display: 'grid', gap: 12, justifyItems: 'center' }}>
+      <small style={{ opacity: .7 }}>{backendInfo}</small>
+      <div style={{ fontSize: 14, opacity: .8 }}>
+        Permiso de notificaciones: <strong>{perm}</strong>
+      </div>
 
       {!subscribed ? (
-        <button disabled={loading} onClick={handleSubscribe}>
-          {loading ? '...' : 'Suscribirme a notificaciones'}
+        <button
+          onClick={subscribe}
+          disabled={busy}
+          style={{
+            padding: '10px 18px',
+            borderRadius: 10,
+            border: '1px solid #555',
+            background: '#222',
+            color: '#fff',
+            cursor: busy ? 'not-allowed' : 'pointer'
+          }}
+        >
+          {busy ? '…' : 'Suscribirme'}
         </button>
       ) : (
-        <>
-          <div style={{ color: '#0f0' }}>Suscrito ✅</div>
-          <button disabled={loading} onClick={handleUnsubscribe} style={{ background: '#c92424', color: '#fff' }}>
-            {loading ? '...' : 'Darse de baja'}
+        <div style={{ display: 'grid', gap: 10, justifyItems: 'center' }}>
+          <div style={{ color: '#4ade80', fontWeight: 600 }}>
+            ✓ Suscrito
+          </div>
+          <button
+            onClick={unsubscribe}
+            disabled={busy}
+            style={{
+              padding: '10px 18px',
+              borderRadius: 10,
+              background: '#b91c1c',
+              color: '#fff',
+              border: 'none',
+              cursor: busy ? 'not-allowed' : 'pointer'
+            }}
+          >
+            {busy ? '…' : 'Darse de baja'}
           </button>
-        </>
-      )}
-
-      <hr style={{ width: 240, opacity: 0.3 }} />
-
-      <button disabled={loading} onClick={handleTest}>Probar notificación (test-push)</button>
-      <button disabled={loading} onClick={() => handleNotifyLatest(false)}>Notificar última noticia</button>
-      <button disabled={loading} onClick={() => handleNotifyLatest(true)}>Notificar (force=1)</button>
-      <button onClick={handleStatus}>/status</button>
-
-      {status && (
-        <pre style={{ textAlign: 'left', maxWidth: 600, overflow: 'auto', background: '#111', padding: 10 }}>
-          {JSON.stringify(status, null, 2)}
-        </pre>
+        </div>
       )}
     </div>
   );
